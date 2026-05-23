@@ -1,0 +1,120 @@
+import socket
+import threading
+import os
+import time
+from datetime import datetime
+
+# Konfigurasi Jaringan
+HOST = '127.0.0.1'
+PROXY_PORT = 8080      # Port tempat Proxy berjalan
+SERVER_IP = '127.0.0.1'
+SERVER_PORT = 8000     # Port tujuan (Web Server)
+CACHE_DIR = 'cache'
+
+# Membuat folder cache jika belum ada
+if not os.path.exists(CACHE_DIR):
+    os.makedirs(CACHE_DIR)
+
+def get_timestamp():
+    """Fungsi bantuan untuk log waktu respons"""
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+def handle_client(client_socket, client_address):
+    """Menangani permintaan dari Client, memproses Cache, dan Forwarding"""
+    start_time = time.time()
+    try:
+        # 1. Menerima request dari Client
+        request = client_socket.recv(4096)
+        if not request:
+            client_socket.close()
+            return
+
+        # Parsing URL dari HTTP Request
+        request_decoded = request.decode('utf-8', errors='ignore')
+        headers = request_decoded.split('\n')
+        if len(headers) > 0 and len(headers[0].split()) > 1:
+            url = headers[0].split()[1]
+        else:
+            url = '/'
+        
+        if url == '/':
+            url = '/index.html'
+
+        # Format nama file untuk disimpan di cache (misal: _index.html)
+        cache_filename = url.replace('/', '_')
+        cache_filepath = os.path.join(CACHE_DIR, cache_filename)
+
+        # 2. LOGIKA CACHING
+        if os.path.exists(cache_filepath):
+            # --- CACHE HIT ---
+            # Mengirim respons langsung dari file cache tanpa menghubungi server
+            with open(cache_filepath, 'rb') as f:
+                response = f.read()
+            client_socket.sendall(response)
+            
+            response_time = (time.time() - start_time) * 1000
+            print(f"[PROXY LOG] {get_timestamp()} | IP: {client_address[0]} | URL: {url} | Status: HIT | Waktu: {response_time:.2f}ms")
+        else:
+            # --- CACHE MISS (FORWARDING) ---
+            # Buka koneksi ke Web Server tujuan
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server_socket.settimeout(2.0) # Batas waktu tunggu (Timeout)
+            
+            try:
+                server_socket.connect((SERVER_IP, SERVER_PORT))
+                server_socket.sendall(request)
+                
+                # Menerima respons dari Web Server
+                response = b""
+                while True:
+                    data = server_socket.recv(4096)
+                    if len(data) > 0:
+                        response += data
+                    else:
+                        break
+                
+                # Simpan respons ke folder cache lokal
+                if response:
+                    with open(cache_filepath, 'wb') as f:
+                        f.write(response)
+                    
+                    # Teruskan kembali ke Client
+                    client_socket.sendall(response)
+                    
+                    response_time = (time.time() - start_time) * 1000
+                    print(f"[PROXY LOG] {get_timestamp()} | IP: {client_address[0]} | URL: {url} | Status: MISS | Waktu: {response_time:.2f}ms")
+                
+            except socket.timeout:
+                # Menangani Error 504 Gateway Timeout
+                error_msg = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: text/html\r\n\r\n<html><body><h1>504 Gateway Timeout</h1><p>Server tidak merespons.</p></body></html>"
+                client_socket.sendall(error_msg.encode('utf-8'))
+                print(f"[PROXY ERROR] {get_timestamp()} | IP: {client_address[0]} | 504 Gateway Timeout")
+            except Exception as e:
+                # Menangani Error 502 Bad Gateway
+                error_msg = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html\r\n\r\n<html><body><h1>502 Bad Gateway</h1></body></html>"
+                client_socket.sendall(error_msg.encode('utf-8'))
+                print(f"[PROXY ERROR] {get_timestamp()} | IP: {client_address[0]} | 502 Bad Gateway | Detail: {e}")
+            finally:
+                server_socket.close()
+
+    except Exception as e:
+        print(f"[PROXY EXCEPTION] {e}")
+    finally:
+        client_socket.close()
+
+def start_proxy():
+    """Menjalankan Proxy Server TCP"""
+    proxy_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    proxy_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    proxy_socket.bind((HOST, PROXY_PORT))
+    proxy_socket.listen(10)
+    print(f"[*] Proxy Server listening on {HOST}:{PROXY_PORT}")
+
+    while True:
+        client_socket, client_address = proxy_socket.accept()
+        # Menggunakan threading agar bisa menangani banyak client bersamaan
+        proxy_thread = threading.Thread(target=handle_client, args=(client_socket, client_address))
+        proxy_thread.start()
+
+if __name__ == '__main__':
+    start_proxy()
