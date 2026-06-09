@@ -1,3 +1,4 @@
+import csv
 import socket
 import sys
 import time
@@ -6,6 +7,7 @@ import statistics
 # Konfigurasi Jaringan
 PROXY_IP = '10.130.67.49'  # Masukin IP Kamu Disi yang Sebagai Proxy Lewat Ipconfig
 PROXY_PORT = 8085
+PROXY_UDP_PORT = 9090
 SERVER_IP = '10.130.67.54'  # IP Web Server 
 SERVER_UDP_PORT = 9000
 
@@ -63,7 +65,7 @@ def run_udp_mode():
         payload = f"Ping {i} {send_time}" 
         
         try:
-            udp_socket.sendto(payload.encode('utf-8'), (SERVER_IP, SERVER_UDP_PORT))
+            udp_socket.sendto(payload.encode('utf-8'), (PROXY_IP, PROXY_UDP_PORT))
             data, server = udp_socket.recvfrom(1024)
             recv_time = time.time()
             
@@ -109,6 +111,29 @@ def run_udp_mode():
     throughput_kbps = ((total_payload_bytes * 8) / test_duration) / 1000
     print(f"Throughput    : {throughput_kbps:.2f} kbps")
     print("-------------------------------\n")
+
+    
+    csv_filename = "qos_result.csv"
+    try:
+        with open(csv_filename, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            # Menulis Header
+            writer.writerow(["Metrik QoS", "Nilai", "Satuan"])
+            # Menulis Data
+            if len(rtt_list) > 0:
+                writer.writerow(["Min RTT", f"{min_rtt:.2f}", "ms"])
+                writer.writerow(["Avg RTT", f"{avg_rtt:.2f}", "ms"])
+                writer.writerow(["Max RTT", f"{max_rtt:.2f}", "ms"])
+            else:
+                writer.writerow(["Min/Avg/Max RTT", "Pengukuran Gagal", "-"])
+                
+            writer.writerow(["Packet Loss", f"{loss_percent:.2f}", "%"])
+            writer.writerow(["Jitter", f"{jitter:.2f}", "ms"])
+            writer.writerow(["Throughput", f"{throughput_kbps:.2f}", "kbps"])
+            
+        print(f"[*] BERHASIL: Statistik QoS telah disimpan ke dalam file '{csv_filename}'")
+    except Exception as e:
+        print(f"[!] GAGAL: Tidak dapat menyimpan file CSV. Error: {e}")
 
 if __name__ == '__main__':
     # Memilih mode berdasarkan argumen command line

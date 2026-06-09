@@ -5,10 +5,15 @@ import time
 from datetime import datetime
 
 # Konfigurasi Jaringan
+#PROXY
 HOST = '0.0.0.0'  # Proxy akan mendengarkan pada semua interface
 PROXY_PORT = 8085      # Port tempat Proxy berjalan
+PROXY_UDP_PORT = 9090 # Port untuk menerima paket UDP dari Client
+
+# SERVER
 SERVER_IP = '10.130.67.54'  # IP Web Server tujuan
-SERVER_PORT = 8000     # Port tujuan (Web Server)
+SERVER_PORT = 8000
+SERVER_UDP_PORT = 9000       # Port tujuan (Web Server)
 CACHE_DIR = 'cache'
 
 # Membuat folder cache jika belum ada
@@ -102,6 +107,38 @@ def handle_client(client_socket, client_address):
     finally:
         client_socket.close()
 
+
+#UDP Proxy
+def start_udp_proxy():
+    """Menjalankan Proxy Server UDP (Forwarding QoS)"""
+    udp_proxy_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_proxy_socket.bind((HOST, PROXY_UDP_PORT))
+    print(f"[*] Proxy Server (UDP) listening on {HOST}:{PROXY_UDP_PORT}")
+
+    while True:
+        try:
+            # 1. Terima paket UDP dari Client
+            data, client_address = udp_proxy_socket.recvfrom(1024)
+            
+            # 2. Teruskan paket ke Web Server
+            server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            server_socket.settimeout(1.0) # Timeout agar proxy tidak hang
+            server_socket.sendto(data, (SERVER_IP, SERVER_UDP_PORT))
+            
+            try:
+                # 3. Terima balasan (Echo) dari Web Server
+                response, _ = server_socket.recvfrom(1024)
+                # 4. Kembalikan ke Client
+                udp_proxy_socket.sendto(response, client_address)
+            except socket.timeout:
+                pass # Jika server mati/lambat, biarkan client yang mencatat packet loss
+            finally:
+                server_socket.close()
+                
+        except Exception as e:
+            print(f"[PROXY UDP ERROR] {e}")
+
+
 def start_proxy():
     """Menjalankan Proxy Server TCP"""
     proxy_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -117,4 +154,8 @@ def start_proxy():
         proxy_thread.start()
 
 if __name__ == '__main__':
-    start_proxy()
+    tcp_thread = threading.Thread(target=start_proxy)
+    udp_thread = threading.Thread(target=start_udp_proxy)
+    
+    tcp_thread.start()
+    udp_thread.start()
