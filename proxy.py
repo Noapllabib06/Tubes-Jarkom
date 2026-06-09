@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Konfigurasi Jaringan
 HOST = '127.0.0.1'
-PROXY_PORT = 8080      # Port tempat Proxy berjalan
+PROXY_PORT = 8085      # Port tempat Proxy berjalan
 SERVER_IP = '127.0.0.1'
 SERVER_PORT = 8000     # Port tujuan (Web Server)
 CACHE_DIR = 'cache'
