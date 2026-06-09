@@ -9,7 +9,7 @@ TCP_PORT = 8000
 UDP_PORT = 9000
 
 # FIREWALL
-ALLOWED_PROXY_IP = '[k10.130.67.49' # IP Proxy yang diizinkan untuk mengakses server TCP
+ALLOWED_PROXY_IP = '10.130.67.49' # IP Proxy yang diizinkan untuk mengakses server TCP
 
 
 def get_timestamp():
