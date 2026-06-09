@@ -5,9 +5,9 @@ import time
 from datetime import datetime
 
 # Konfigurasi Jaringan
-HOST = '127.0.0.1'
+HOST = '0.0.0.0'  # Proxy akan mendengarkan pada semua interface
 PROXY_PORT = 8085      # Port tempat Proxy berjalan
-SERVER_IP = '127.0.0.1'
+SERVER_IP = '10.130.67.54'  # IP Web Server tujuan
 SERVER_PORT = 8000     # Port tujuan (Web Server)
 CACHE_DIR = 'cache'
 
@@ -18,7 +18,7 @@ if not os.path.exists(CACHE_DIR):
 def get_timestamp():
     """Fungsi bantuan untuk log waktu respons"""
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
+ 
 def handle_client(client_socket, client_address):
     """Menangani permintaan dari Client, memproses Cache, dan Forwarding"""
     start_time = time.time()

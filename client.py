@@ -4,9 +4,9 @@ import time
 import statistics
 
 # Konfigurasi Jaringan
-PROXY_IP = '10.130.67.49'
+PROXY_IP = '10.130.67.49'  # Masukin IP Kamu Disi yang Sebagai Proxy Lewat Ipconfig
 PROXY_PORT = 8085
-SERVER_IP = '10.130.67.54'
+SERVER_IP = '10.130.67.54'  # IP Web Server 
 SERVER_UDP_PORT = 9000
 
 def run_tcp_mode():
@@ -114,7 +114,7 @@ if __name__ == '__main__':
     # Memilih mode berdasarkan argumen command line
     if len(sys.argv) < 3 or sys.argv[1] != '-mode':
         print("Penggunaan: python client.py -mode tcp ATAU python client.py -mode udp")
-        sys.exit(1) 
+        sys.exit(1)
 
     mode = sys.argv[2].lower()
     if mode == 'tcp':
