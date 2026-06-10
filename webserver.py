@@ -1,6 +1,7 @@
 import socket
 import threading
 import os
+import time
 from datetime import datetime
 
 # HOST diatur ke 0.0.0.0 agar bisa menerima request dari IP WiFi teman-teman Anda
@@ -9,7 +10,7 @@ TCP_PORT = 8000
 UDP_PORT = 9000
 
 # FIREWALL
-ALLOWED_PROXY_IP = '10.130.67.49' # IP Proxy yang diizinkan untuk mengakses server TCP
+ALLOWED_PROXY_IP = '10.130.66.43' # IP Proxy yang diizinkan untuk mengakses server TCP
 
 
 def get_timestamp():
@@ -18,6 +19,9 @@ def get_timestamp():
 
 def handle_tcp_client(client_socket, client_address):
     """Menangani permintaan HTTP GET berbasis TCP"""
+    # Catat waktu mulai saat koneksi mulai diproses
+    start_time = time.time()
+    
     try:
         request = client_socket.recv(1024).decode('utf-8')
         if not request:
@@ -35,6 +39,11 @@ def handle_tcp_client(client_socket, client_address):
         if filename == '/':
             filename = '/index.html'
             
+        # ==============================================================================
+        # [PENANDA ERROR 500]
+        # CARA: Tambahkan tanda '#' di awal baris di bawah ini untuk menonaktifkannya.
+        # Efek: Program akan kehilangan variabel dan langsung memicu 500 Internal Server Error.
+        # ==============================================================================
         filepath = filename.lstrip('/')
 
         try:
@@ -48,58 +57,72 @@ def handle_tcp_client(client_socket, client_address):
             elif filepath.endswith('.jpg') or filepath.endswith('.jpeg'):
                 content_type = 'image/jpeg'
             elif filepath.endswith('.mp4'):
-                content_type = 'video/mp4' # Tambahan untuk MP4
+                content_type = 'video/mp4'
             else:
                 content_type = 'text/html'
             # --------------------------------------------------------
 
             # Skenario Berhasil: 200 OK
-            # UBAH KE MODE 'rb' (Read Binary) TANPA encoding utf-8
             with open(filepath, 'rb') as file:
-                content = file.read() # content sekarang adalah tipe data 'bytes'
+                content = file.read() 
             
-            # Siapkan header HTTP (tipe data string)
             header = 'HTTP/1.1 200 OK\r\n'
-            # Jika file adalah teks/html/css, boleh tambahkan charset
             if 'text' in content_type:
                 header += f'Content-Type: {content_type}; charset=utf-8\r\n'
             else:
                 header += f'Content-Type: {content_type}\r\n'
                 
-            header += f'Content-Length: {len(content)}\r\n'
+            file_size = len(content) # Dapatkan ukuran file dalam bytes
+            header += f'Content-Length: {file_size}\r\n'
             header += '\r\n'
             
-            # Gabungkan Header (diubah ke bytes) dengan Content asli (sudah bytes)
             response = header.encode('utf-8') + content
             
-            # Kirim langsung ke klien (tidak perlu di-encode lagi karena sudah bytes)
+            # ==============================================================================
+            # [PENANDA ERROR 504]
+            # CARA: Hapus tanda '#' pada awal baris 'time.sleep(3)' di bawah ini.
+            # Efek: Server akan delay 3 detik, membuat Proxy kehabisan waktu memicu 504 Timeout.
+            # ==============================================================================
+            #time.sleep(3)
+            
             client_socket.sendall(response)
             
-            print(f"[TCP LOG] {get_timestamp()} | IP: {client_address[0]} | 200 OK | Jalur: {filename}")
+            # Hitung total waktu proses dalam milidetik (ms)
+            process_time = (time.time() - start_time) * 1000
+            
+            # Cetak log dengan Ukuran dan Waktu Proses
+            print(f"[TCP LOG] {get_timestamp()} | IP: {client_address[0]} | 200 OK | Jalur: {filename} | Ukuran: {file_size} bytes | Waktu: {process_time:.2f} ms")
             
         except FileNotFoundError:
             # Skenario Gagal: 404 Not Found
             error_msg = "<html><body><h1>404 Not Found</h1><p>Berkas tidak ditemukan.</p></body></html>"
+            file_size = len(error_msg)
+            
             response = 'HTTP/1.1 404 Not Found\r\n'
             response += 'Content-Type: text/html; charset=utf-8\r\n'
-            response += f'Content-Length: {len(error_msg)}\r\n'
+            response += f'Content-Length: {file_size}\r\n'
             response += '\r\n'
             response += error_msg
             
             client_socket.sendall(response.encode('utf-8'))
-            print(f"[TCP LOG] {get_timestamp()} | IP: {client_address[0]} | 404 Not Found | Jalur: {filename}")
+            
+            process_time = (time.time() - start_time) * 1000
+            print(f"[TCP LOG] {get_timestamp()} | IP: {client_address[0]} | 404 Not Found | Jalur: {filename} | Ukuran: {file_size} bytes | Waktu: {process_time:.2f} ms")
 
     except Exception as e:
         # Skenario Gagal: 500 Internal Server Error
         error_msg = "<html><body><h1>500 Internal Server Error</h1></body></html>"
+        file_size = len(error_msg)
+        
         response = 'HTTP/1.1 500 Internal Server Error\r\n'
         response += 'Content-Type: text/html; charset=utf-8\r\n'
-        response += f'Content-Length: {len(error_msg)}\r\n'
+        response += f'Content-Length: {file_size}\r\n'
         response += '\r\n'
         response += error_msg
         client_socket.sendall(response.encode('utf-8'))
         
-        print(f"[TCP ERROR] {get_timestamp()} | IP: {client_address[0]} | 500 Internal Server Error | Detail: {e}")
+        process_time = (time.time() - start_time) * 1000
+        print(f"[TCP ERROR] {get_timestamp()} | IP: {client_address[0]} | 500 Internal Server Error | Detail: {e} | Ukuran: {file_size} bytes | Waktu: {process_time:.2f} ms")
         
     finally:
         client_socket.close()
@@ -137,11 +160,25 @@ def start_udp_server():
     print(f"[*] UDP Echo Server listening on {HOST}:{UDP_PORT}")
 
     while True:
-        data, client_address = udp_socket.recvfrom(1024)
-        # Catatan: UDP tidak dipasangi firewall karena Client (10.141.160.185) 
-        # memang WAJIB menembak UDP langsung ke server untuk tes QoS.
-        udp_socket.sendto(data, client_address)
-        # print(f"[UDP LOG] {get_timestamp()} | Echoed payload back to {client_address[0]}") # Bisa dimatikan lognya jika terlalu ramai
+        try:
+            # 1. Terima paket
+            data, client_address = udp_socket.recvfrom(1024)
+            start_time = time.time() # Catat waktu saat paket diterima dan siap diproses
+            
+            # Catatan: UDP tidak dipasangi firewall karena Client memang WAJIB menembak UDP langsung ke server untuk tes QoS.
+            
+            # 2. Kembalikan paket (Echo)
+            udp_socket.sendto(data, client_address)
+            
+            # 3. Hitung metrik log
+            process_time = (time.time() - start_time) * 1000
+            data_size = len(data)
+            
+            # 4. Cetak Log UDP
+            print(f"[UDP LOG] {get_timestamp()} | UDP Echo | Ukuran: {data_size} bytes | Waktu Proses: {process_time:.3f} ms")
+            
+        except Exception as e:
+            print(f"[UDP ERROR] {get_timestamp()} | Detail Error: {e}")
 
 if __name__ == "__main__":
     tcp_thread = threading.Thread(target=start_tcp_server)

@@ -8,10 +8,9 @@ from datetime import datetime
 #PROXY
 HOST = '0.0.0.0'  # Proxy akan mendengarkan pada semua interface
 PROXY_PORT = 8085      # Port tempat Proxy berjalan
-PROXY_UDP_PORT = 9090 # Port untuk menerima paket UDP dari Client
 
 # SERVER
-SERVER_IP = '10.130.67.54'  # IP Web Server tujuan
+SERVER_IP = '10.130.65.12'  # IP Web Server tujuan
 SERVER_PORT = 8000
 SERVER_UDP_PORT = 9000       # Port tujuan (Web Server)
 CACHE_DIR = 'cache'
@@ -23,7 +22,7 @@ if not os.path.exists(CACHE_DIR):
 def get_timestamp():
     """Fungsi bantuan untuk log waktu respons"""
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
- 
+
 def handle_client(client_socket, client_address):
     """Menangani permintaan dari Client, memproses Cache, dan Forwarding"""
     start_time = time.time()
@@ -58,7 +57,10 @@ def handle_client(client_socket, client_address):
             client_socket.sendall(response)
             
             response_time = (time.time() - start_time) * 1000
-            print(f"[PROXY LOG] {get_timestamp()} | IP: {client_address[0]} | URL: {url} | Status: HIT | Waktu: {response_time:.2f}ms")
+            response_size = len(response) # Menghitung ukuran data
+            
+            # Menambahkan Ukuran Data ke dalam Log
+            print(f"[PROXY LOG] {get_timestamp()} | IP: {client_address[0]} | Ukuran Data: {response_size} bytes | Status: HIT | Waktu: {response_time:.2f}ms")
         else:
             # --- CACHE MISS (FORWARDING) ---
             # Buka koneksi ke Web Server tujuan
@@ -66,7 +68,14 @@ def handle_client(client_socket, client_address):
             server_socket.settimeout(2.0) # Batas waktu tunggu (Timeout)
             
             try:
-                server_socket.connect((SERVER_IP, SERVER_PORT))
+                # 1. FASE KONEKSI (Jika gagal/timeout di sini, jadikan 502)
+                try:
+                    server_socket.connect((SERVER_IP, SERVER_PORT))
+                except Exception as e:
+                    # Menggagalkan proses secara paksa agar masuk ke blok Exception 502 di bawah
+                    raise ConnectionError(f"Gagal koneksi ke server: {e}")
+
+                # 2. FASE REQUEST & RESPONS (Jika timeout di sini, jadikan 504)
                 server_socket.sendall(request)
                 
                 # Menerima respons dari Web Server
@@ -87,18 +96,29 @@ def handle_client(client_socket, client_address):
                     client_socket.sendall(response)
                     
                     response_time = (time.time() - start_time) * 1000
-                    print(f"[PROXY LOG] {get_timestamp()} | IP: {client_address[0]} | URL: {url} | Status: MISS | Waktu: {response_time:.2f}ms")
-                
+                    response_size = len(response) # Menghitung ukuran data
+                    
+                    # Menambahkan Ukuran Data ke dalam Log
+                    print(f"[PROXY LOG] {get_timestamp()} | IP: {client_address[0]} | Ukuran Data: {response_size} bytes | Status: MISS | Waktu: {response_time:.2f}ms")
+            
             except socket.timeout:
-                # Menangani Error 504 Gateway Timeout
-                error_msg = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: text/html\r\n\r\n<html><body><h1>504 Gateway Timeout</h1><p>Server tidak merespons.</p></body></html>"
-                client_socket.sendall(error_msg.encode('utf-8'))
-                print(f"[PROXY ERROR] {get_timestamp()} | IP: {client_address[0]} | 504 Gateway Timeout")
+                # [KONDISI 504] - Server sudah nyambung, tapi kelamaan merespons data (Timeout)
+                error_msg = "HTTP/1.1 504 Gateway Timeout\r\nContent-Type: text/html\r\n\r\n<html><body><h1>504 Gateway Timeout</h1><p>Server tidak merespons dalam batas waktu.</p></body></html>"
+                response_bytes = error_msg.encode('utf-8')
+                client_socket.sendall(response_bytes)
+                
+                response_time = (time.time() - start_time) * 1000
+                print(f"[PROXY ERROR] {get_timestamp()} | IP: {client_address[0]} | Ukuran Data: {len(response_bytes)} bytes | Status: 504 Timeout | Waktu: {response_time:.2f}ms")
+            
             except Exception as e:
-                # Menangani Error 502 Bad Gateway
-                error_msg = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html\r\n\r\n<html><body><h1>502 Bad Gateway</h1></body></html>"
-                client_socket.sendall(error_msg.encode('utf-8'))
-                print(f"[PROXY ERROR] {get_timestamp()} | IP: {client_address[0]} | 502 Bad Gateway | Detail: {e}")
+                # [KONDISI 502] - Server tujuan mati total, tidak bisa dijangkau, atau menolak koneksi
+                error_msg = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html\r\n\r\n<html><body><h1>502 Bad Gateway</h1><p>Server tujuan mati atau menolak koneksi.</p></body></html>"
+                response_bytes = error_msg.encode('utf-8')
+                client_socket.sendall(response_bytes)
+                
+                response_time = (time.time() - start_time) * 1000
+                print(f"[PROXY ERROR] {get_timestamp()} | IP: {client_address[0]} | Ukuran Data: {len(response_bytes)} bytes | Status: 502 Gateway | Waktu: {response_time:.2f}ms | Detail: {e}")
+            
             finally:
                 server_socket.close()
 
@@ -107,45 +127,13 @@ def handle_client(client_socket, client_address):
     finally:
         client_socket.close()
 
-
-#UDP Proxy
-def start_udp_proxy():
-    """Menjalankan Proxy Server UDP (Forwarding QoS)"""
-    udp_proxy_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_proxy_socket.bind((HOST, PROXY_UDP_PORT))
-    print(f"[*] Proxy Server (UDP) listening on {HOST}:{PROXY_UDP_PORT}")
-
-    while True:
-        try:
-            # 1. Terima paket UDP dari Client
-            data, client_address = udp_proxy_socket.recvfrom(1024)
-            
-            # 2. Teruskan paket ke Web Server
-            server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            server_socket.settimeout(1.0) # Timeout agar proxy tidak hang
-            server_socket.sendto(data, (SERVER_IP, SERVER_UDP_PORT))
-            
-            try:
-                # 3. Terima balasan (Echo) dari Web Server
-                response, _ = server_socket.recvfrom(1024)
-                # 4. Kembalikan ke Client
-                udp_proxy_socket.sendto(response, client_address)
-            except socket.timeout:
-                pass # Jika server mati/lambat, biarkan client yang mencatat packet loss
-            finally:
-                server_socket.close()
-                
-        except Exception as e:
-            print(f"[PROXY UDP ERROR] {e}")
-
-
 def start_proxy():
     """Menjalankan Proxy Server TCP"""
     proxy_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     proxy_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     proxy_socket.bind((HOST, PROXY_PORT))
     proxy_socket.listen(10)
-    print(f"[*] Proxy Server listening on {HOST}:{PROXY_PORT}")
+    print(f"[*] Proxy Server (TCP) listening on {HOST}:{PROXY_PORT}")
 
     while True:
         client_socket, client_address = proxy_socket.accept()
@@ -155,7 +143,5 @@ def start_proxy():
 
 if __name__ == '__main__':
     tcp_thread = threading.Thread(target=start_proxy)
-    udp_thread = threading.Thread(target=start_udp_proxy)
     
     tcp_thread.start()
-    udp_thread.start()

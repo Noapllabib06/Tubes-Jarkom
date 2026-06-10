@@ -5,10 +5,10 @@ import time
 import statistics
 
 # Konfigurasi Jaringan
-PROXY_IP = '10.130.67.49'  # Masukin IP Kamu Disi yang Sebagai Proxy Lewat Ipconfig
+PROXY_IP = '10.130.66.43'  # Masukin IP Kamu Disi yang Sebagai Proxy Lewat Ipconfig
 PROXY_PORT = 8085
-PROXY_UDP_PORT = 9090
-SERVER_IP = '10.130.67.54'  # IP Web Server 
+# PROXY_UDP_PORT = 9090
+SERVER_IP = '10.130.65.12'  # IP Web Server 
 SERVER_UDP_PORT = 9000
 
 def run_tcp_mode():
@@ -65,7 +65,7 @@ def run_udp_mode():
         payload = f"Ping {i} {send_time}" 
         
         try:
-            udp_socket.sendto(payload.encode('utf-8'), (PROXY_IP, PROXY_UDP_PORT))
+            udp_socket.sendto(payload.encode('utf-8'), (SERVER_IP, SERVER_UDP_PORT))
             data, server = udp_socket.recvfrom(1024)
             recv_time = time.time()
             
